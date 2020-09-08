@@ -45,7 +45,10 @@ const (
 	minSleep                    = 10 * time.Millisecond
 	maxSleep                    = 2 * time.Second
 	decayConstant               = 2 // bigger for slower decay, exponential
-	graphURL                    = "https://graph.microsoft.com/v1.0"
+	graphAPIEndpoint            = "https://graph.microsoft.com"
+	authEndpoint                = "https://login.microsoftonline.com"
+	graphAPIEndpoint21V         = "https://microsoftgraph.chinacloudapi.cn"
+	authEndpoint21V             = "https://login.chinacloudapi.cn"
 	configDriveID               = "drive_id"
 	configDriveType             = "drive_type"
 	driveTypePersonal           = "personal"
@@ -58,11 +61,15 @@ const (
 // Globals
 var (
 	// Description of how to auth for this app for a business account
-	oauthConfig = &oauth2.Config{
-		Endpoint: oauth2.Endpoint{
-			AuthURL:  "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
-			TokenURL: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
-		},
+	oauthEndpoint = &oauth2.Endpoint{
+		AuthURL:  authEndpoint + "/common/oauth2/v2.0/authorize",
+		TokenURL: authEndpoint + "/common/oauth2/v2.0/token",
+	}
+	oauthEndpointV21 = &oauth2.Endpoint{
+		AuthURL:  authEndpoint21V + "/common/oauth2/v2.0/authorize",
+		TokenURL: authEndpoint21V + "/common/oauth2/v2.0/token",
+	}
+	oauthConfig = &oauth2.Config{		
 		Scopes:       []string{"Files.Read", "Files.ReadWrite", "Files.Read.All", "Files.ReadWrite.All", "offline_access", "Sites.Read.All"},
 		ClientID:     rcloneClientID,
 		ClientSecret: obscure.MustReveal(rcloneEncryptedClientSecret),
@@ -81,8 +88,21 @@ func init() {
 		Description: "Microsoft OneDrive",
 		NewFs:       NewFs,
 		Config: func(name string, m configmap.Mapper) {
+			opt := new(Options)
+			err := configstruct.Set(m, opt)
+			if err != nil {
+				fs.Errorf(nil, "Couldn't parse config into struct: %v", err)
+				return
+			}
+
+			graphURL := graphAPIEndpoint + "/v1.0"
+			oauthConfig.Endpoint = *oauthEndpoint
+			if opt.Is21Vianet {
+				graphURL = graphAPIEndpoint21V + "/v1.0"
+				oauthConfig.Endpoint = *oauthEndpointV21
+			}
 			ctx := context.TODO()
-			err := oauthutil.Config("onedrive", name, m, oauthConfig, nil)
+			err = oauthutil.Config("onedrive", name, m, oauthConfig, nil)
 			if err != nil {
 				log.Fatalf("Failed to configure token: %v", err)
 				return
@@ -256,6 +276,10 @@ Note that the chunks will be buffered into memory.`,
 			Default:  "",
 			Advanced: true,
 		}, {
+			Name:    "is_21vianet_version",
+			Default: false,
+			Help:    "OneDrive operated by 21Vianet (世纪互联).",
+ 		}, {
 			Name:     "drive_type",
 			Help:     "The type of the drive ( " + driveTypePersonal + " | " + driveTypeBusiness + " | " + driveTypeSharepoint + " )",
 			Default:  "",
@@ -350,6 +374,7 @@ this flag there.
 
 // Options defines the configuration for this backend
 type Options struct {
+	Is21Vianet         		bool          		 `config:"is_21vianet_version"`
 	ChunkSize               fs.SizeSuffix        `config:"chunk_size"`
 	DriveID                 string               `config:"drive_id"`
 	DriveType               string               `config:"drive_type"`
@@ -608,6 +633,13 @@ func NewFs(name, root string, m configmap.Mapper) (fs.Fs, error) {
 		return nil, errors.New("unable to get drive_id and drive_type - if you are upgrading from older versions of rclone, please run `rclone config` and re-configure this backend")
 	}
 
+	rootURL := graphAPIEndpoint + "/v1.0" + "/drives/" + opt.DriveID
+	oauthConfig.Endpoint = *oauthEndpoint
+	if opt.Is21Vianet {
+		rootURL = graphAPIEndpoint21V + "/v1.0" + "/me/drive"
+		oauthConfig.Endpoint = *oauthEndpointV21
+	}
+	
 	root = parsePath(root)
 	oAuthClient, ts, err := oauthutil.NewClient(name, m, oauthConfig)
 	if err != nil {
@@ -620,7 +652,7 @@ func NewFs(name, root string, m configmap.Mapper) (fs.Fs, error) {
 		opt:       *opt,
 		driveID:   opt.DriveID,
 		driveType: opt.DriveType,
-		srv:       rest.NewClient(oAuthClient).SetRoot(graphURL + "/drives/" + opt.DriveID),
+		srv:       rest.NewClient(oAuthClient).SetRoot(rootURL),
 		pacer:     fs.NewPacer(pacer.NewDefault(pacer.MinSleep(minSleep), pacer.MaxSleep(maxSleep), pacer.DecayConstant(decayConstant))),
 	}
 	f.features = (&fs.Features{
@@ -1881,7 +1913,8 @@ func newOptsCall(normalizedID string, method string, route string) (opts rest.Op
 func parseNormalizedID(ID string) (string, string, string) {
 	if strings.Index(ID, "#") >= 0 {
 		s := strings.Split(ID, "#")
-		return s[1], s[0], graphURL + "/drives"
+		//return s[1], s[0], graphURL + "/drives"
+		return s[1], "", ""
 	}
 	return ID, "", ""
 }
