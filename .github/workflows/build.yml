@@ -169,24 +169,24 @@ jobs:
         run: |
           make
 
-      - name: Run tests
-        shell: bash
-        run: |
-          make quicktest
-        if: matrix.quicktest
+#       - name: Run tests
+#         shell: bash
+#         run: |
+#           make quicktest
+#         if: matrix.quicktest
 
-      - name: Race test
-        shell: bash
-        run: |
-          make racequicktest
-        if: matrix.racequicktest
+#       - name: Race test
+#         shell: bash
+#         run: |
+#           make racequicktest
+#         if: matrix.racequicktest
 
-      - name: Code quality test
-        shell: bash
-        run: |
-          make build_dep
-          make check
-        if: matrix.check
+#       - name: Code quality test
+#         shell: bash
+#         run: |
+#           make build_dep
+#           make check
+#         if: matrix.check
 
       - name: Compile all architectures test
         shell: bash
